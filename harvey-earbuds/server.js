@@ -1,8 +1,6 @@
 const WebSocket = require('ws');
 const express = require('express');
 const path = require('path');
-const recorder = require('node-record-lpcm16');
-const mic = require('mic');
 const querystring = require('querystring');
 require('dotenv').config();
 
@@ -26,10 +24,6 @@ class CharacterAssistantServer {
         this.ASSEMBLY_ENDPOINT_BASE_URL = "wss://streaming.assemblyai.com/v3/ws";
         this.ASSEMBLY_ENDPOINT = `${this.ASSEMBLY_ENDPOINT_BASE_URL}?${querystring.stringify(this.CONNECTION_PARAMS)}`;
         
-        // Audio configuration
-        this.SAMPLE_RATE = 16000;
-        this.CHANNELS = 1;
-        
         this.setupExpress();
         this.setupWebSocketServer();
     }
@@ -44,23 +38,20 @@ class CharacterAssistantServer {
 
     setupWebSocketServer() {
         this.wss.on('connection', (clientWs) => {
-            console.log('🎧 Client connected - ready for earbud session');
-            
+            console.log('🎧 Client connected - ready for browser audio session');
+
             let assemblyWs = null;
-            let recording = null;
-            let micInputStream = null;
-            let isListening = false;
             let currentCharacter = this.currentCharacter;
             
             // Send welcome message
             clientWs.send(JSON.stringify({
                 type: 'status',
-                message: 'Connected! Ready to listen through your microphone.'
+                message: 'Connected! Ready for browser-based audio streaming.'
             }));
             
             clientWs.on('message', async (message) => {
                 try {
-                    // Handle binary audio data
+                    // Handle binary audio data first
                     if (message instanceof Buffer && assemblyWs && assemblyWs.readyState === WebSocket.OPEN) {
                         // Forward raw audio data directly to AssemblyAI
                         console.log(`🎵 Forwarding ${message.length} bytes of audio data to AssemblyAI`);
@@ -68,60 +59,74 @@ class CharacterAssistantServer {
                         return;
                     }
 
-                    // Handle JSON messages
-                    const data = JSON.parse(message.toString());
+                    // Try to handle as JSON - if it fails, it's likely binary data
+                    let data;
+                    try {
+                        data = JSON.parse(message.toString());
+                    } catch (parseError) {
+                        // This is binary audio data, handle it
+                        if (assemblyWs && assemblyWs.readyState === WebSocket.OPEN) {
+                            console.log(`🎵 Forwarding ${message.length} bytes of binary audio data to AssemblyAI`);
+                            assemblyWs.send(message);
+                        }
+                        return;
+                    }
                     
                     if (data.type === 'startListening') {
-                        console.log('🎤 Starting listening session...');
-                        currentCharacter = data.character || currentCharacter;
+                        console.log('🎤 Starting simple transcription session...');
 
-                        if (data.mode === 'browser-audio') {
-                            console.log('🌐 Using browser-based audio capture');
+                        // Create AssemblyAI WebSocket connection
+                        assemblyWs = new WebSocket(this.ASSEMBLY_ENDPOINT, {
+                            headers: {
+                                Authorization: this.ASSEMBLY_API_KEY,
+                            },
+                        });
 
-                            // Create AssemblyAI WebSocket connection for browser audio
-                            assemblyWs = new WebSocket(this.ASSEMBLY_ENDPOINT, {
-                                headers: {
-                                    Authorization: this.ASSEMBLY_API_KEY,
-                                },
-                            });
+                        assemblyWs.on('open', () => {
+                            console.log('✅ AssemblyAI WebSocket connected - ready for audio');
+                            clientWs.send(JSON.stringify({
+                                type: 'status',
+                                message: '✅ Connected to speech recognition! Start speaking...'
+                            }));
+                        });
 
-                            assemblyWs.on('open', () => {
-                                console.log('✅ AssemblyAI WebSocket connected for browser audio');
-                                clientWs.send(JSON.stringify({
-                                    type: 'status',
-                                    message: 'Speech recognition ready. Browser will handle audio capture.'
-                                }));
-                            });
+                        assemblyWs.on('message', (assemblyMessage) => {
+                            const messageStr = assemblyMessage.toString();
+                            console.log('📨 AssemblyAI message:', messageStr);
 
-                            assemblyWs.on('message', (assemblyMessage) => {
-                                console.log('📨 Received AssemblyAI message:', assemblyMessage.toString());
-                                this.handleAssemblyAIMessage(clientWs, assemblyMessage, currentCharacter);
-                            });
+                            try {
+                                const data = JSON.parse(messageStr);
+                                if (data.type === 'Turn' && data.transcript) {
+                                    console.log('🗣️ TRANSCRIPTION:', data.transcript);
+                                    // Send transcription back to client
+                                    clientWs.send(JSON.stringify({
+                                        type: 'transcript',
+                                        text: data.transcript
+                                    }));
+                                }
+                            } catch (e) {
+                                console.log('📨 Raw message:', messageStr);
+                            }
+                        });
 
-                            assemblyWs.on('error', (error) => {
-                                console.error('❌ AssemblyAI WebSocket Error:', error);
-                                clientWs.send(JSON.stringify({
-                                    type: 'error',
-                                    message: 'Speech recognition error - check your connection'
-                                }));
-                            });
+                        assemblyWs.on('error', (error) => {
+                            console.error('❌ AssemblyAI Error:', error);
+                            clientWs.send(JSON.stringify({
+                                type: 'error',
+                                message: 'Speech recognition error'
+                            }));
+                        });
 
-                            assemblyWs.on('close', () => {
-                                console.log('🔌 AssemblyAI WebSocket closed');
-                            });
-                        } else {
-                            // Fallback to server-side audio (will likely fail on Windows without SoX)
-                            console.log('🖥️ Attempting server-side audio capture...');
-                            // ... existing server-side code
-                        }
+                        assemblyWs.on('close', () => {
+                            console.log('🔌 AssemblyAI connection closed');
+                        });
                     }
 
                     
                     if (data.type === 'stopListening') {
                         console.log('⏹️ Stopping listening session...');
-                        isListening = false;
-                        this.cleanup(recording, assemblyWs);
-                        
+                        this.cleanup(null, assemblyWs);
+
                         clientWs.send(JSON.stringify({
                             type: 'status',
                             message: 'Stopped listening. Ready to start again.'
@@ -145,160 +150,11 @@ class CharacterAssistantServer {
 
             clientWs.on('close', () => {
                 console.log('👋 Client disconnected');
-                this.cleanup(recording, assemblyWs);
+                this.cleanup(null, assemblyWs);
             });
         });
     }
 
-    startMicrophone(clientWs, assemblyWs) {
-        // Try multiple microphone approaches for better Windows compatibility
-        return this.tryMicrophoneApproaches(clientWs, assemblyWs);
-    }
-
-    async tryMicrophoneApproaches(clientWs, assemblyWs) {
-        console.log('🎙️ Starting microphone with multiple fallback approaches...');
-
-        // Approach 1: Try the mic library (better Windows support)
-        try {
-            return await this.startMicrophoneWithMicLib(clientWs, assemblyWs);
-        } catch (error) {
-            console.log('📢 Mic library failed, trying node-record-lpcm16...');
-        }
-
-        // Approach 2: Try node-record-lpcm16 as fallback
-        try {
-            return await this.startMicrophoneWithRecorder(clientWs, assemblyWs);
-        } catch (error) {
-            console.error('❌ All microphone approaches failed');
-            clientWs.send(JSON.stringify({
-                type: 'error',
-                message: 'Unable to start microphone. Please ensure: 1) Microphone is connected and working, 2) No other apps are using it, 3) Microphone permissions are granted in Windows settings, 4) Try running as administrator.'
-            }));
-            return null;
-        }
-    }
-
-    async startMicrophoneWithMicLib(clientWs, assemblyWs) {
-        return new Promise((resolve, reject) => {
-            try {
-                console.log('🎙️ Trying mic library approach...');
-
-                const micInstance = mic({
-                    rate: this.SAMPLE_RATE,
-                    channels: this.CHANNELS,
-                    debug: false,
-                    exitOnSilence: 6,
-                    fileType: 'wav'
-                });
-
-                const micInputStream = micInstance.getAudioStream();
-                let hasStarted = false;
-                let errorTimeout;
-
-                // Set a timeout to detect if microphone fails to start
-                errorTimeout = setTimeout(() => {
-                    if (!hasStarted) {
-                        console.error('🚨 Mic library timeout');
-                        reject(new Error('Mic library timeout'));
-                    }
-                }, 5000);
-
-                micInputStream.on('data', (audioData) => {
-                    if (!hasStarted) {
-                        hasStarted = true;
-                        clearTimeout(errorTimeout);
-                        console.log('✅ Microphone started successfully with mic library');
-                        clientWs.send(JSON.stringify({
-                            type: 'status',
-                            message: `🎤 Listening as ${this.getCharacterDisplayName()} through your microphone!`
-                        }));
-                        resolve(micInstance);
-                    }
-
-                    if (assemblyWs && assemblyWs.readyState === WebSocket.OPEN) {
-                        assemblyWs.send(audioData);
-                    }
-                });
-
-                micInputStream.on('error', (err) => {
-                    clearTimeout(errorTimeout);
-                    console.error('🚨 Mic library error:', err);
-                    reject(err);
-                });
-
-                micInputStream.on('silence', () => {
-                    console.log('🔇 Silence detected');
-                });
-
-                // Start the microphone
-                micInstance.start();
-                console.log('🎙️ Mic library start command sent...');
-
-            } catch (error) {
-                console.error('❌ Mic library setup error:', error);
-                reject(error);
-            }
-        });
-    }
-
-    async startMicrophoneWithRecorder(clientWs, assemblyWs) {
-        return new Promise((resolve, reject) => {
-            try {
-                console.log('🎙️ Trying node-record-lpcm16 approach...');
-
-                const recording = recorder.record({
-                    sampleRate: this.SAMPLE_RATE,
-                    channels: this.CHANNELS,
-                    audioType: 'wav',
-                    silence: '2.0',
-                    threshold: 0.5,
-                    verbose: false,
-                    device: null
-                });
-
-                const micInputStream = recording.stream();
-                let hasStarted = false;
-                let errorTimeout;
-
-                errorTimeout = setTimeout(() => {
-                    if (!hasStarted) {
-                        console.error('🚨 Recorder timeout');
-                        reject(new Error('Recorder timeout'));
-                    }
-                }, 5000);
-
-                micInputStream.on('data', (audioData) => {
-                    if (!hasStarted) {
-                        hasStarted = true;
-                        clearTimeout(errorTimeout);
-                        console.log('✅ Microphone started successfully with recorder');
-                        clientWs.send(JSON.stringify({
-                            type: 'status',
-                            message: `🎤 Listening as ${this.getCharacterDisplayName()} through your microphone!`
-                        }));
-                        resolve(recording);
-                    }
-
-                    if (assemblyWs && assemblyWs.readyState === WebSocket.OPEN) {
-                        assemblyWs.send(audioData);
-                    }
-                });
-
-                micInputStream.on('error', (err) => {
-                    clearTimeout(errorTimeout);
-                    console.error('🚨 Recorder error:', err);
-                    reject(err);
-                });
-
-                recording.start();
-                console.log('🎙️ Recorder start command sent...');
-
-            } catch (error) {
-                console.error('❌ Recorder setup error:', error);
-                reject(error);
-            }
-        });
-    }
 
     async handleAssemblyAIMessage(clientWs, message, character) {
         try {
@@ -470,21 +326,7 @@ class CharacterAssistantServer {
         return charResponses.default;
     }
 
-    cleanup(recording, assemblyWs) {
-        if (recording) {
-            try {
-                // Handle both mic library and recorder library
-                if (typeof recording.stop === 'function') {
-                    recording.stop();
-                } else if (typeof recording.pause === 'function') {
-                    recording.pause();
-                }
-                console.log('🔇 Microphone stopped');
-            } catch (error) {
-                console.error('❌ Error stopping microphone:', error);
-            }
-        }
-
+    cleanup(unused, assemblyWs) {
         if (assemblyWs && [WebSocket.OPEN, WebSocket.CONNECTING].includes(assemblyWs.readyState)) {
             try {
                 if (assemblyWs.readyState === WebSocket.OPEN) {
@@ -512,11 +354,11 @@ class CharacterAssistantServer {
         this.server.listen(port, () => {
             console.log('\n🎭 CHARACTER EARBUD ASSISTANT SERVER READY');
             console.log(`🌐 Server running on http://localhost:${port}`);
-            console.log('🎧 Using browser-based audio capture');
+            console.log('🎧 Using browser-based audio capture with 16kHz resampling');
             console.log('🤖 AssemblyAI real-time transcription enabled');
             console.log('📱 Open the URL above in your browser to start\n');
             console.log('💡 Make sure your microphone is connected and working!');
-            console.log('🔧 This version uses browser audio - no SoX required!');
+            console.log('🔧 Optimized for browser audio streaming!');
         });
     }
 }
