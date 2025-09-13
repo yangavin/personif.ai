@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(choco:*)",
+      "Bash(scoop:*)",
+      "Bash(powershell:*)",
+      "Bash(mkdir:*)",
+      "Bash(cmd /c:*)",
+      "Bash(set PATH=%PATH%)",
+      "Bash(C:soxsox-14.4.2)",
+      "Bash(npm start)",
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "Bash(where sox)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
