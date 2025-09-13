@@ -12,7 +12,7 @@ class CharacterAssistantServer {
         this.currentCharacter = 'harvey_specter';
         
         // AssemblyAI Configuration
-        this.ASSEMBLY_API_KEY = "bdf0002c857f452dac6670c41392a68a";
+        this.ASSEMBLY_API_KEY = process.env.ASSEMBLYAI_API_KEY;
         this.CONNECTION_PARAMS = {
             sampleRate: 16000,
             formatTurns: true,
