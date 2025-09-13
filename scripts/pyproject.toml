@@ -6,10 +6,11 @@ authors = [
     {name = "Evan Ferreira",email = "evanjfer@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.9,<4.0"
 dependencies = [
     "assemblyai (==0.43.1)",
     "cerebras-cloud-sdk (>=1.50.1,<2.0.0)",
+    "elevenlabs (>=2.15.0,<3.0.0)",
     "annotated-types (==0.7.0)",
     "anyio (==4.10.0)",
     "certifi (==2025.8.3)",
