@@ -2,6 +2,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
+import logging
 
 from assemblyai.streaming.v3 import (
     BeginEvent,
@@ -11,6 +12,8 @@ from assemblyai.streaming.v3 import (
     TerminationEvent,
     TurnEvent,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

@@ -8,9 +8,15 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "assemblyai[extras] (>=0.43.1,<0.44.0)"
+    "assemblyai[extras] (>=0.43.1,<0.44.0)",
+    "speechbrain (==1.0.2)",
+    "soundfile (==0.12.1)",
+    "sounddevice (==0.4.6)",
+    "numpy (>=2.3.3,<3.0.0)"
 ]
 
+[tool.poetry]
+package-mode = false
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
