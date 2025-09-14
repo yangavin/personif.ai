@@ -32,7 +32,7 @@ class SpeakerService:
         self.user_voice_profile_path = user_voice_profile_path
         self.similarity_threshold = 0.7  # Adjust based on testing
         self.last_speaker_was_user: Optional[bool] = None  # Track last detected speaker
-        self._initialize_model()
+        # self._initialize_model()
         self._load_user_profile()
     
     def _initialize_model(self):

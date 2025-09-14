@@ -41,13 +41,14 @@ class DualAudioStream:
             if not self._running:
                 break
                 
-            # Send to audio chunking service for speaker recognition
-            try:
-                # Convert bytes to numpy array for chunking service
-                audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-                audio_chunking_service.add_audio_data(audio_array)
-            except Exception as e:
-                logger.error(f"Error sending audio to chunking service: {e}")
+            # COMMENTED OUT: Send to audio chunking service for speaker recognition
+            # try:
+            #     # Convert bytes to numpy array for chunking service
+            #     audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+            #     audio_chunking_service.add_audio_data(audio_array)
+            # except Exception as e:
+            #     logger.error(f"Error sending audio to chunking service: {e}")
+            pass  # Disabled speaker recognition
             
             # Send to AssemblyAI
             yield audio_data
@@ -81,21 +82,21 @@ def main():
     """Main function to start streaming with speaker recognition"""
     
     # Check if user has enrolled their voice
-    if not speaker_service.has_user_profile():
-        logger.error("❌ No user voice profile found!")
-        logger.info("Please run 'python enroll_voice.py' first to enroll your voice.")
-        return
+    # if not speaker_service.has_user_profile():
+    #     logger.error("❌ No user voice profile found!")
+    #     logger.info("Please run 'python enroll_voice.py' first to enroll your voice.")
+    #     return
     
-    logger.info("✅ User voice profile found!")
-    logger.info("🎯 Starting dual audio streaming: AssemblyAI transcription + Speaker recognition")
+    # logger.info("✅ User voice profile found!")
+    # logger.info("🎯 Starting dual audio streaming: AssemblyAI transcription + Speaker recognition")
     
-    # Configure audio chunking for speaker recognition (3-second chunks)
-    audio_chunking_service.chunk_duration_seconds = 3.0
-    audio_chunking_service.overlap_seconds = 1.0
+    # # Configure audio chunking for speaker recognition (3-second chunks)
+    # audio_chunking_service.chunk_duration_seconds = 3.0
+    # audio_chunking_service.overlap_seconds = 1.0
     
-    # Set up speaker recognition callback
-    audio_chunking_service.set_chunk_callback(speaker_recognition_callback)
-    audio_chunking_service.start()
+    # # Set up speaker recognition callback
+    # audio_chunking_service.set_chunk_callback(speaker_recognition_callback)
+    # audio_chunking_service.start()
     
     # Set up AssemblyAI client
     client = StreamingClient(
@@ -135,7 +136,7 @@ def main():
         dual_stream.stop()
     finally:
         # Clean up
-        audio_chunking_service.stop()
+        # audio_chunking_service.stop()
         client.disconnect(terminate=True)
         logger.info("✅ Cleanup complete")
 
