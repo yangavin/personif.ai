@@ -2,7 +2,7 @@ import os
 from cerebras.cloud.sdk import Cerebras
 
 client = Cerebras(
-  api_key="csk-w4mcxrcex2vkpv24jdtv23kyjyh9jyn5cxw2terkp9k2xtxn"
+  api_key=os.getenv("CEREBRAS_API_KEY")
 )
 
 chat_completion = client.chat.completions.create(
