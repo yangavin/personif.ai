@@ -116,6 +116,7 @@ def main():
         StreamingParameters(
             sample_rate=16000,
             format_turns=True,
+            min_end_of_turn_silence_when_confident=600,
         )
     )
 

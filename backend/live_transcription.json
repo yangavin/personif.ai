@@ -1,4 +1,14 @@
-{
-  "you": "",
-  "other": "hello Hello. this is a test to see if this works This is a test to see if this works."
-}
+[
+  {
+    "you": "Gavin toothink. Anwar's cute."
+  },
+  {
+    "other": "Yes."
+  },
+  {
+    "you": "He's extremely cute."
+  },
+  {
+    "other": "Fuck. Why did it change?"
+  }
+]
