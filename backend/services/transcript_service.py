@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 import logging
+import requests
+import random
 
 from assemblyai.streaming.v3 import (
     BeginEvent,
@@ -66,6 +68,9 @@ class TranscriptService:
                     self._complete_transcript += " " + event.transcript
                 else:
                     self._complete_transcript = event.transcript
+                
+                # Check if we need to make API call
+                self._handle_end_of_turn()
         
         print(f"{event.transcript} ({event.end_of_turn})")
         
@@ -121,6 +126,59 @@ class TranscriptService:
             self._current_transcript = ""
             self._complete_transcript = ""
             self._transcript_history.clear()
+    
+    def _handle_end_of_turn(self):
+        """Handle end of turn - check if we need to make API call"""
+        try:
+            # Import here to avoid circular imports
+            from .speaker_service import speaker_service
+            
+            # Check if the last speaker was not the user
+            last_speaker_was_user = speaker_service.get_last_speaker_was_user()
+            
+            if last_speaker_was_user is not None and not last_speaker_was_user:
+                logger.info("🔴 End of turn detected and last speaker was not the user - making API call")
+                self._make_random_api_call()
+            else:
+                logger.info("🟢 End of turn detected but last speaker was the user - no API call needed")
+                
+        except Exception as e:
+            logger.error(f"Error handling end of turn: {e}")
+    
+    def _make_random_api_call(self):
+        """Make an API call to a random example endpoint"""
+        try:
+            # List of example endpoints to choose from
+            example_endpoints = [
+                "https://jsonplaceholder.typicode.com/posts/1",
+                "https://httpbin.org/get",
+                "https://api.github.com/zen",
+                "https://httpbin.org/uuid",
+                "https://jsonplaceholder.typicode.com/users/1"
+            ]
+            
+            # Choose a random endpoint
+            endpoint = random.choice(example_endpoints)
+            
+            logger.info(f"Making API call to: {endpoint}")
+            
+            # Make the API call with a timeout
+            response = requests.get(endpoint, timeout=5)
+            
+            if response.status_code == 200:
+                logger.info(f"✅ API call successful! Status: {response.status_code}")
+                # Log first 200 characters of response for debugging
+                response_text = response.text[:200] + "..." if len(response.text) > 200 else response.text
+                logger.info(f"Response preview: {response_text}")
+            else:
+                logger.warning(f"⚠️ API call returned status {response.status_code}")
+                
+        except requests.exceptions.Timeout:
+            logger.error("❌ API call timed out")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ API call failed: {e}")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during API call: {e}")
 
 
 # Global service instance that can be accessed from anywhere
