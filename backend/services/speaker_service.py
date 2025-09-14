@@ -31,7 +31,8 @@ class SpeakerService:
         self.user_voice_profile: Optional[np.ndarray] = None
         self.user_voice_profile_path = user_voice_profile_path
         self.similarity_threshold = 0.7  # Adjust based on testing
-        self._initialize_model()
+        self.last_speaker_was_user: Optional[bool] = None  # Track last detected speaker
+        # self._initialize_model()
         self._load_user_profile()
     
     def _initialize_model(self):
@@ -140,6 +141,9 @@ class SpeakerService:
                 is_user = similarity_score > self.similarity_threshold
                 confidence = min(similarity_score / self.similarity_threshold, 1.0) if is_user else similarity_score
                 
+                # Update last speaker tracking
+                self.last_speaker_was_user = is_user
+                
                 return SpeakerResult(
                     is_user=is_user,
                     confidence=confidence,
@@ -187,6 +191,11 @@ class SpeakerService:
             logger.info(f"Similarity threshold set to {threshold}")
         else:
             logger.error("Threshold must be between 0.0 and 1.0")
+    
+    def get_last_speaker_was_user(self) -> Optional[bool]:
+        """Get whether the last detected speaker was the user"""
+        with self._lock:
+            return self.last_speaker_was_user
 
 
 # Global service instance

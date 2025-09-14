@@ -1,14 +1,14 @@
 import threading
-from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 import logging
+import requests
+import json
 
 from assemblyai.streaming.v3 import (
     BeginEvent,
     StreamingClient,
     StreamingError,
-    StreamingSessionParameters,
     TerminationEvent,
     TurnEvent,
 )
@@ -16,111 +16,123 @@ from assemblyai.streaming.v3 import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class TranscriptEntry:
-    transcript: str
-    timestamp: datetime
-    is_end_of_turn: bool
-    is_partial: bool
-
-
 class TranscriptService:
-    """Service for managing streaming transcript data with thread-safe access"""
+    """Simplified service for managing streaming transcript data with JSON output"""
     
-    def __init__(self):
+    def __init__(self, json_output_path: str = "live_transcription.json"):
         self._lock = threading.Lock()
-        self._current_transcript = ""
-        self._complete_transcript = ""
-        self._transcript_history: List[TranscriptEntry] = []
         self._session_id: Optional[str] = None
         self._is_active = False
+        
+        # JSON transcription tracking
+        self.json_output_path = json_output_path
+        self._transcription_data: List[Dict[str, str]] = []
+        self._initialize_json_file()
+        self._curr_speaker = "you"
+        self._prev_speaker = "you"
+        self._end_of_turn_counter = 0  # Track end_of_turn events
+    
+    def _initialize_json_file(self):
+        """Initialize the JSON transcription file"""
+        try:
+            self._write_json_file()
+            logger.info(f"Initialized JSON transcription file: {self.json_output_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize JSON file: {e}")
+    
+    def _write_json_file(self):
+        """Write current transcription data to JSON file"""
+        try:
+            with open(self.json_output_path, 'w', encoding='utf-8') as f:
+                json.dump(self._transcription_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Failed to write JSON file: {e}")
+    
+    def _get_speaker(self) -> str:
+        """Get the current speaker based on speaker recognition"""
+        try:
+            from .speaker_service import speaker_service
+            last_speaker_was_user = speaker_service.get_last_speaker_was_user()
+            return "you" if last_speaker_was_user else "other"
+        except Exception as e:
+            logger.error(f"Error getting speaker: {e}")
+            return "other"  # Default fallback
     
     def on_begin(self, client: StreamingClient, event: BeginEvent):
         """Handle streaming session begin event"""
         with self._lock:
             self._session_id = event.id
             self._is_active = True
-            self._current_transcript = ""
-            self._complete_transcript = ""
-            self._transcript_history.clear()
-        print(f"Session started: {event.id}")
+            self._transcription_data = []
+            self._write_json_file()
+            self._curr_speaker = "you"
+            self._prev_speaker = "you"
+            self._end_of_turn_counter = 0  # Reset counter for new session
+            
+        logger.info(f"Session started: {event.id}")
     
     def on_turn(self, client: StreamingClient, event: TurnEvent):
         """Handle streaming transcript turn event"""
         with self._lock:
-            # Store in history
-            entry = TranscriptEntry(
-                transcript=event.transcript,
-                timestamp=datetime.now(),
-                is_end_of_turn=event.end_of_turn,
-                is_partial=not event.end_of_turn
-            )
-            self._transcript_history.append(entry)
+            # Log with current speaker BEFORE any changes
+            current_speaker_for_logging = self._curr_speaker
             
-            # Update current transcript
-            self._current_transcript = event.transcript
-            
-            # If it's end of turn, add to complete transcript
+            # Add or update transcript entry
             if event.end_of_turn:
-                if self._complete_transcript:
-                    self._complete_transcript += " " + event.transcript
-                else:
-                    self._complete_transcript = event.transcript
-        
-        print(f"{event.transcript} ({event.end_of_turn})")
-        
-        if event.end_of_turn and not event.turn_is_formatted:
-            params = StreamingSessionParameters(format_turns=True)
-            client.set_params(params)
+                self._end_of_turn_counter += 1
+                
+                # Only process every other end_of_turn (skip the raw, keep the formatted)
+                if self._end_of_turn_counter % 2 == 0:
+                    # Finalize the transcript entry (this should be the formatted version)
+                    self._transcription_data.append({self._curr_speaker: event.transcript})
+                    self._write_json_file()
+                    
+                    # Make API call if "other" was speaking
+                    if current_speaker_for_logging == "other" and event.transcript.strip():
+                        self._make_api_call(event.transcript)
+                    
+                    # Switch speaker for next turn
+                    self._prev_speaker = self._curr_speaker
+                    self._curr_speaker = "you" if self._prev_speaker == "other" else "other"
+            
+        logger.info(f"[{current_speaker_for_logging.upper()}] {event.transcript} (end_of_turn: {event.end_of_turn}) [Counter: {self._end_of_turn_counter}]")
     
     def on_terminated(self, client: StreamingClient, event: TerminationEvent):
         """Handle streaming session termination event"""
         with self._lock:
             self._is_active = False
-        print(f"Session terminated: {event.audio_duration_seconds} seconds of audio processed")
+        logger.info(f"Session terminated: {event.audio_duration_seconds} seconds of audio processed")
     
     def on_error(self, client: StreamingClient, error: StreamingError):
         """Handle streaming error event"""
-        print(f"Error occurred: {error}")
-    
-    # Public methods to access the data
-    def get_current_transcript(self) -> str:
-        """Get the most recent transcript (may be partial)"""
-        with self._lock:
-            return self._current_transcript
-    
-    def get_complete_transcript(self) -> str:
-        """Get all completed turns concatenated"""
-        with self._lock:
-            return self._complete_transcript
-    
-    def get_transcript_history(self) -> List[TranscriptEntry]:
-        """Get full history of all transcript events"""
-        with self._lock:
-            return self._transcript_history.copy()
-    
-    def get_recent_turns(self, count: int = 5) -> List[TranscriptEntry]:
-        """Get the most recent completed turns"""
-        with self._lock:
-            completed_turns = [entry for entry in self._transcript_history if entry.is_end_of_turn]
-            return completed_turns[-count:] if completed_turns else []
+        logger.error(f"Streaming error: {error}")
     
     def is_session_active(self) -> bool:
         """Check if streaming session is currently active"""
         with self._lock:
             return self._is_active
-    
-    def get_session_id(self) -> Optional[str]:
-        """Get the current session ID"""
-        with self._lock:
-            return self._session_id
-    
-    def clear_transcript(self):
-        """Clear all stored transcript data"""
-        with self._lock:
-            self._current_transcript = ""
-            self._complete_transcript = ""
-            self._transcript_history.clear()
+            
+    def _make_api_call(self, transcript_text: str):
+        """Make an API call with the transcript data"""
+        try:
+            endpoint = "https://httpbin.org/post"
+            payload = {
+                "transcript": transcript_text,
+                "speaker": "other",
+                "timestamp": datetime.now().isoformat(),
+                "session_id": self._session_id
+            }
+            
+            logger.info(f"Making API call with transcript: '{transcript_text}'")
+            response = requests.post(endpoint, json=payload, timeout=5)
+            
+            if response.status_code == 200:
+                logger.info("✅ API call successful")
+            else:
+                logger.warning(f"⚠️ API call returned status {response.status_code}")
+                
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during API call: {e}")
 
 
 # Global service instance that can be accessed from anywhere
