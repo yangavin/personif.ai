@@ -6,7 +6,7 @@ authors = [
     {name = "Evan Ferreira",email = "evanjfer@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.9,<4.0"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "assemblyai[extras] (>=0.43.1,<0.44.0)",
     "speechbrain (==1.0.2)",
