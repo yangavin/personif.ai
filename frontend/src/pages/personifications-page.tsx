@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PersonificationCard } from "@/src/components/personification-card";
 import { EditPersonificationDialog } from "@/src/components/edit-personification-dialog";
 import { NewPersonificationDialog } from "@/src/components/new-personification-dialog";
 import { DeleteConfirmationDialog } from "@/src/components/delete-confirmation-dialog";
 import { Button } from "@/src/components/ui/button";
-import { mockPersonifications } from "@/src/lib/mock-data";
+import { getPersonifications, setActivePersonification } from "@/src/lib/api";
 import { Personification } from "@/types/personification";
 import { Plus, Filter } from "lucide-react";
 
@@ -17,8 +17,9 @@ interface PersonificationsPageProps {
 export function PersonificationsPage({
   onTabChange,
 }: PersonificationsPageProps) {
-  const [personifications, setPersonifications] =
-    useState(mockPersonifications);
+  const [personifications, setPersonifications] = useState<Personification[]>(
+    []
+  );
   const [editingPersonification, setEditingPersonification] =
     useState<Personification | null>(null);
   const [deletingPersonification, setDeletingPersonification] =
@@ -29,6 +30,28 @@ export function PersonificationsPage({
   const [activePersonificationId, setActivePersonificationId] = useState<
     string | null
   >(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load personifications on component mount
+  useEffect(() => {
+    loadPersonifications();
+  }, []);
+
+  const loadPersonifications = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getPersonifications();
+      setPersonifications(data.personifications);
+      setActivePersonificationId(data.activeChoice);
+    } catch (err) {
+      console.error("Error loading personifications:", err);
+      setError("Failed to load personifications");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleEditPersonification = (personification: Personification) => {
     setEditingPersonification(personification);
@@ -74,10 +97,24 @@ export function PersonificationsPage({
     }
   };
 
-  const handleActivatePersonification = (personificationId: string) => {
-    setActivePersonificationId(
-      activePersonificationId === personificationId ? null : personificationId
-    );
+  const handleActivatePersonification = async (personificationId: string) => {
+    try {
+      const newActiveId =
+        activePersonificationId === personificationId
+          ? null
+          : personificationId;
+
+      // Optimistically update the UI
+      setActivePersonificationId(newActiveId);
+
+      // Update on server
+      await setActivePersonification(newActiveId);
+    } catch (err) {
+      console.error("Error updating active personification:", err);
+      // Revert the optimistic update on error
+      setActivePersonificationId(activePersonificationId);
+      setError("Failed to update active personification");
+    }
   };
 
   return (
@@ -112,21 +149,52 @@ export function PersonificationsPage({
 
         {/* Horizontal Scroll Container */}
         <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          <div className="h-full flex items-center px-6 py-6 gap-6 min-w-max">
-            {personifications.map((personification) => (
-              <div key={personification.id} className="flex-shrink-0 h-full">
-                <PersonificationCard
-                  personification={personification}
-                  onEdit={handleEditPersonification}
-                  onDelete={handleDeletePersonification}
-                  isActive={activePersonificationId === personification.id}
-                  onActivate={() =>
-                    handleActivatePersonification(personification.id)
-                  }
-                />
+          {loading ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-gray-500">Loading personifications...</div>
+            </div>
+          ) : error ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-red-600 mb-2">{error}</div>
+                <Button
+                  onClick={loadPersonifications}
+                  variant="outline"
+                  size="sm"
+                >
+                  Try Again
+                </Button>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : personifications.length === 0 ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-gray-500 mb-4">
+                  No personifications found
+                </div>
+                <Button onClick={() => setIsNewDialogOpen(true)} size="sm">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Your First Personification
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full flex items-center px-6 py-6 gap-6 min-w-max">
+              {personifications.map((personification) => (
+                <div key={personification.id} className="flex-shrink-0 h-full">
+                  <PersonificationCard
+                    personification={personification}
+                    onEdit={handleEditPersonification}
+                    onDelete={handleDeletePersonification}
+                    isActive={activePersonificationId === personification.id}
+                    onActivate={() =>
+                      handleActivatePersonification(personification.id)
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
