@@ -20,3 +20,7 @@ numpy>=2.3.3
 soundfile==0.12.1
 sounddevice==0.4.6
 requests>=2.25.0
+# Simple API dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
