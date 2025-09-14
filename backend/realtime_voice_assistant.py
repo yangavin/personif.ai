@@ -48,13 +48,16 @@ class RealtimeVoiceAssistant:
         # Communication queues
         self.speech_queue = queue.Queue()
 
-        # Voice settings for Steve Harvey-like sound
+        # Voice settings with speed control for Harvey Specter (set to SLOW)
         self.voice_settings = VoiceSettings(
-            stability=0.8,        # Higher stability for consistent Steve Harvey voice
-            similarity_boost=0.9,  # High similarity to original voice clone
-            style=0.3,            # Moderate style for personality
+            stability=0.9,        # Higher stability for slow, clear speech
+            similarity_boost=0.85, # High similarity to original voice clone
+            style=0.2,            # Lower style for slower, more deliberate speech
             use_speaker_boost=True # Enhanced speaker characteristics
         )
+
+        # Speed control options
+        self.speaking_speed = "slow"  # Options: "slow", "normal", "fast"
 
         # System prompt for Steve Harvey personality
         self.system_prompt = """You are Steve Harvey, the famous comedian and Family Feud host.
@@ -70,11 +73,18 @@ class RealtimeVoiceAssistant:
         self.is_speaking = True
 
         def ai_word_generator():
-            """Generate words from Cerebras AI - simple, no buffers"""
+            """Generate words from Cerebras AI with speed control"""
             try:
                 for word_chunk in generate_streaming_response(user_input, self.system_prompt):
                     if word_chunk.strip():
                         yield word_chunk.strip() + " "
+                        # Add delay based on speed setting
+                        if self.speaking_speed == "slow":
+                            time.sleep(0.2)  # 200ms delay for slow speech
+                        elif self.speaking_speed == "normal":
+                            time.sleep(0.05)  # 50ms delay for normal speech
+                        elif self.speaking_speed == "fast":
+                            time.sleep(0.01)  # 10ms delay for fast speech
             except Exception as e:
                 print(f"❌ AI generation error: {e}")
                 yield "Sorry, I encountered an error generating a response. "
@@ -82,13 +92,13 @@ class RealtimeVoiceAssistant:
         try:
             print("🤖 AI speaking (original streaming)...")
 
-            # Use ElevenLabs realtime streaming - original method
+            # Use ElevenLabs realtime streaming with voice settings for speed control
             audio_stream = self.tts_client.text_to_speech.convert_realtime(
                 voice_id=self.voice_id,
                 text=ai_word_generator(),
                 model_id="eleven_monolingual_v1",
                 output_format="mp3_44100_128",
-                voice_settings=None
+                voice_settings=self.voice_settings
             )
 
             # Stream and play audio chunks - original simple method
@@ -126,6 +136,26 @@ class RealtimeVoiceAssistant:
         finally:
             self.is_speaking = False
 
+    def set_speaking_speed(self, speed: str):
+        """Change Harvey's speaking speed"""
+        valid_speeds = ["slow", "normal", "fast"]
+        if speed.lower() in valid_speeds:
+            self.speaking_speed = speed.lower()
+            print(f"🎛️ Speaking speed set to: {self.speaking_speed}")
+
+            # Update voice settings based on speed
+            if speed == "slow":
+                self.voice_settings.style = 0.2  # Lower style for slower, more deliberate speech
+                self.voice_settings.stability = 0.9  # Higher stability for clarity
+            elif speed == "normal":
+                self.voice_settings.style = 0.4  # Normal style
+                self.voice_settings.stability = 0.75  # Normal stability
+            elif speed == "fast":
+                self.voice_settings.style = 0.6  # Higher style for more energetic speech
+                self.voice_settings.stability = 0.6  # Lower stability for natural fast speech
+        else:
+            print(f"❌ Invalid speed. Use: {', '.join(valid_speeds)}")
+
     def start_speech_recognition(self):
         """Start continuous speech recognition"""
         print("🎤 Starting speech recognition...")
@@ -143,6 +173,14 @@ class RealtimeVoiceAssistant:
                     print("👋 Ending conversation...")
                     self.conversation_active = False
                     return
+
+                # Check for speed control commands
+                if user_text.lower().startswith('speed'):
+                    speed_parts = user_text.lower().split()
+                    if len(speed_parts) >= 2:
+                        speed = speed_parts[1]  # e.g., "speed fast" -> "fast"
+                        self.set_speaking_speed(speed)
+                        return
 
                 # Only process if AI isn't currently speaking
                 if not self.is_speaking and self.conversation_active:
@@ -216,7 +254,9 @@ class RealtimeVoiceAssistant:
         print("="*60)
         print("💡 Speak naturally - I'll respond in real-time!")
         print("💡 Say 'quit', 'exit', or 'stop' to end conversation")
+        print("💡 Say 'speed slow', 'speed normal', or 'speed fast' to change speaking speed")
         print("💡 Wait for me to finish speaking before your next question")
+        print(f"🎛️ Current speed: {self.speaking_speed}")
         print("="*60)
 
         # Give a Steve Harvey greeting
